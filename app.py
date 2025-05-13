@@ -4,6 +4,7 @@ import os
 import math
 import re
 import csv
+import pickle
 from collections import defaultdict, Counter
 
 app = Flask(__name__)
@@ -12,6 +13,7 @@ app = Flask(__name__)
 VALID_SENTIMENTS = frozenset(["positive", "negative", "neutral"])
 ENCODINGS_TO_TRY = ['utf-8', 'windows-1252', 'ISO-8859-1']
 LAPLACE_SMOOTHING_ALPHA = 1.0
+MODEL_SAVE_PATH = "sentiment_model.pkl"  # Path to save/load the model
 
 # Enhanced stopwords list
 STOPWORDS = frozenset({
@@ -116,6 +118,30 @@ class SentimentModel:
 
 # Initialize model
 model = SentimentModel()
+
+def save_model(model_obj, filepath=MODEL_SAVE_PATH):
+    """Save the trained model to disk"""
+    try:
+        with open(filepath, 'wb') as f:
+            pickle.dump(model_obj, f)
+        return True
+    except Exception as e:
+        print(f"Error saving model: {str(e)}")
+        return False
+
+def load_model(filepath=MODEL_SAVE_PATH):
+    """Load a trained model from disk"""
+    global model
+    try:
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
+                model = pickle.load(f)
+            print(f"Model loaded successfully from {filepath}")
+            return True
+        return False
+    except Exception as e:
+        print(f"Error loading model: {str(e)}")
+        return False
 
 def load_training_data_from_csv(filepath):
     """Load training data from CSV file with fallback encodings"""
@@ -286,9 +312,12 @@ def train_model(data):
 
     model.is_trained = True
     
+    # Save the trained model to disk
+    save_model(model)
+    
     return {
         "status": "success",
-        "message": "Model trained successfully",
+        "message": "Model trained successfully and saved to disk",
         "stats": {
             "vocabulary_size": len(model.vocabulary),
             "positive_examples": model.class_counts["positive"],
@@ -506,7 +535,7 @@ def welcome():
     return jsonify({
         "name": "Sentiment Analysis API",
         "status": "active",
-        "version": "1.1.0",
+        "version": "1.2.0",  # Updated version
         "endpoints": {
             "/train": "POST - Train the sentiment model",
             "/predict": "POST - Predict sentiment of text",
@@ -523,6 +552,13 @@ def train_endpoint():
             return jsonify({"status": "error", "message": "Request must be JSON"}), 400
         
         req = request.json
+        
+        # Check if model is already trained and force parameter is not set
+        if model.is_trained and not req.get("force_retrain", False):
+            return jsonify({
+                "status": "info", 
+                "message": "Model is already trained. To retrain, set 'force_retrain': true in your request."
+            })
         
         # Handle different input methods
         if 'data' in req and isinstance(req['data'], list):
@@ -597,8 +633,58 @@ def health_check():
     return jsonify({
         "status": "ok",
         "model_trained": model.is_trained,
-        "stats": stats
+        "stats": stats,
+        "model_persistence": os.path.exists(MODEL_SAVE_PATH)
     })
 
+# Add a new route to get model information
+@app.route('/model-info', methods=['GET'])
+def model_info():
+    """Return detailed information about the trained model"""
+    if not model.is_trained:
+        return jsonify({
+            "status": "error",
+            "message": "Model not trained yet"
+        }), 400
+    
+    # Return useful stats about the model
+    return jsonify({
+        "status": "ok",
+        "model_stats": {
+            "vocabulary_size": len(model.vocabulary),
+            "class_distribution": {
+                "positive": model.class_counts["positive"],
+                "negative": model.class_counts["negative"],
+                "neutral": model.class_counts["neutral"]
+            },
+            "total_documents": model.total_documents,
+            "top_features": {
+                "positive": dict(Counter(model.word_counts["positive"]).most_common(10)),
+                "negative": dict(Counter(model.word_counts["negative"]).most_common(10)),
+                "neutral": dict(Counter(model.word_counts["neutral"]).most_common(10))
+            },
+            "persistence": {
+                "model_file_exists": os.path.exists(MODEL_SAVE_PATH),
+                "model_file_path": os.path.abspath(MODEL_SAVE_PATH) if os.path.exists(MODEL_SAVE_PATH) else None
+            }
+        }
+    })
+
+# Try to load model when application starts
+def initialize():
+    """Initialize the model by trying to load it from disk on first request"""
+    global model
+    load_model()
+
 if __name__ == '__main__':
+    # Try to load model at startup
+    if os.path.exists(MODEL_SAVE_PATH):
+        print(f"Found existing model at {MODEL_SAVE_PATH}, attempting to load...")
+        if load_model():
+            print("Model loaded successfully!")
+        else:
+            print("Failed to load model, starting with untrained model")
+    else:
+        print(f"No model found at {MODEL_SAVE_PATH}, starting with untrained model")
+    
     app.run(host='0.0.0.0', port=5000, debug=True)
