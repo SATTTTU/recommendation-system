@@ -39,56 +39,55 @@ STOPWORDS = frozenset({
     'yourself', 'yourselves'
 })
 
+# Words indicating negation or contradiction
 NEGATION_WORDS = frozenset({
     "not", "no", "never", "don't", "doesn't", "didn't", "wasn't", "weren't",
     "isn't", "aren't", "haven't", "hasn't", "won't", "wouldn't", "can't", "couldn't"
 })
 
-INTENSIFIERS = frozenset({'very', 'extremely', 'really', 'so', 'too', 'absolutely', 'completely', 'quite', 'totally', 'truly', 'particularly', 'especially'})
-# Enhanced emotion word lists with weights
-IMPORTANT_NEGATIVE_WORDS = frozenset({'suicide', 'disappointed', 'hate', 'depressed', 'angry', 'sad', 'hopeless', 
-                                     'upset', 'hurt', 'anxious', 'worried', 'afraid', 'unhappy', 'miserable'})
+# Words indicating intensity
+INTENSIFIERS = frozenset({
+    'very', 'extremely', 'really', 'so', 'too', 'absolutely', 
+    'completely', 'quite', 'totally', 'truly', 'particularly', 'especially'
+})
 
-IMPORTANT_POSITIVE_WORDS = frozenset({'happy', 'joy', 'excited', 'love', 'grateful', 'pleased', 'wonderful', 
-                                     'delighted', 'glad', 'content', 'peaceful', 'satisfied'})
+# Context transition markers - expanded
+CONTEXT_TRANSITIONS = frozenset({
+    # Contrast transitions
+    'but', 'however', 'although', 'though', 'yet', 'nevertheless', 'despite', 
+    'in spite of', 'conversely', 'on the contrary', 'on the other hand',
+    # Temporal transitions
+    'now', 'currently', 'today', 'lately', 'recently', 'previously', 'before',
+    'after', 'then', 'since', 'meanwhile', 'subsequently', 'eventually',
+    # Causal transitions
+    'because', 'since', 'as', 'therefore', 'thus', 'consequently', 'hence',
+    'as a result', 'due to', 'for this reason',
+    # Concession transitions
+    'still', 'nonetheless', 'regardless', 'even so', 'all the same'
+})
 
-# Emotion transition markers
-TEMPORAL_TRANSITION_WORDS = frozenset({'but', 'however', 'although', 'though', 'yet', 'now', 'today', 'lately'})
+# Lists of known emotional words - not weighted, just used for recognition
+KNOWN_NEGATIVE_WORDS = frozenset({
+    'suicide', 'disappointed', 'hate', 'depressed', 'angry', 'sad', 'hopeless', 
+    'upset', 'hurt', 'anxious', 'worried', 'afraid', 'unhappy', 'miserable',
+    'awful', 'terrible', 'horrible', 'dreadful', 'annoyed', 'irritated',
+    'furious', 'enraged', 'disgusted', 'outraged', 'frightened', 'terrified',
+    'devastated', 'heartbroken', 'crushed', 'betrayed', 'rejected', 'abandoned',
+    'distressed', 'troubled', 'confused', 'lost', 'helpless', 'vulnerable',
+    'ashamed', 'embarrassed', 'humiliated', 'guilty', 'regretful', 'remorseful'
+})
 
-# Use more memory-efficient dict for constants with updated weights
-NEGATIVE_BOOST_WORDS = {
-    'suicide': 3.0,
-    'disappointed': 2.0,
-    'hate': 2.5,
-    'depressed': 2.5,
-    'angry': 2.0,
-    'sad': 2.0,
-    'hopeless': 2.5,
-    'upset': 1.8,
-    'hurt': 1.8,
-    'anxious': 1.5,
-    'worried': 1.5,
-    'afraid': 1.8,
-    'unhappy': 1.8,
-    'miserable': 2.2
-}
+KNOWN_POSITIVE_WORDS = frozenset({
+    'happy', 'joy', 'excited', 'love', 'grateful', 'pleased', 'wonderful', 
+    'delighted', 'glad', 'content', 'peaceful', 'satisfied', 'cheerful',
+    'ecstatic', 'elated', 'thrilled', 'jubilant', 'overjoyed', 'blissful',
+    'grateful', 'thankful', 'appreciative', 'proud', 'confident', 'optimistic',
+    'hopeful', 'inspired', 'enthusiastic', 'passionate', 'amazed', 'impressed',
+    'admiring', 'adoring', 'affectionate', 'loving', 'caring', 'comforted',
+    'relieved', 'relaxed', 'calm', 'serene', 'tranquil', 'fulfilled'
+})
 
-POSITIVE_BOOST_WORDS = {
-    'happy': 1.5,
-    'joy': 1.8, 
-    'excited': 1.5,
-    'love': 2.0,
-    'grateful': 1.8,
-    'pleased': 1.5,
-    'wonderful': 1.8,
-    'delighted': 1.8,
-    'glad': 1.5,
-    'content': 1.5,
-    'peaceful': 1.5,
-    'satisfied': 1.5
-}
-
-# Blog recommendations - moved to a separate constant
+# Blog recommendations - kept the same
 BLOG_RECOMMENDATIONS = {
     "positive": [
         {"title": "5 Ways to Maintain Your Positive Mindset", "url": "/blogs/positive-mindset"},
@@ -171,110 +170,225 @@ def load_training_data_from_csv(filepath):
     
     return data
 
+def extract_sentence_chunks(text):
+    """Break text into sentence chunks for contextual analysis"""
+    # Split by common sentence terminators with possible spaces after
+    chunks = re.split(r'[.!?]\s*', text)
+    # Remove empty chunks
+    return [chunk.strip() for chunk in chunks if chunk.strip()]
+
+def analyze_text_structure(text):
+    """Analyze the overall structure of the text for contextual features"""
+    structure_info = {
+        "sentence_count": 0,
+        "avg_sentence_length": 0,
+        "contains_contrast": False,
+        "contains_question": "?" in text,
+        "contains_exclamation": "!" in text,
+        "sentiment_shifts": [],
+    }
+    
+    # Get sentence chunks
+    sentences = extract_sentence_chunks(text)
+    structure_info["sentence_count"] = len(sentences)
+    
+    # Calculate average sentence length in words
+    if sentences:
+        word_counts = [len(s.split()) for s in sentences]
+        structure_info["avg_sentence_length"] = sum(word_counts) / len(sentences)
+    
+    # Look for contrast markers between sentences
+    prev_sentiment = None
+    
+    for i, sentence in enumerate(sentences):
+        words = sentence.lower().split()
+        
+        # Check for contrast words at beginning of sentences (except first)
+        if i > 0 and words and words[0] in CONTEXT_TRANSITIONS:
+            structure_info["contains_contrast"] = True
+        
+        # Simple sentiment detection for shift analysis
+        pos_count = sum(1 for w in words if w in KNOWN_POSITIVE_WORDS)
+        neg_count = sum(1 for w in words if w in KNOWN_NEGATIVE_WORDS)
+        
+        current_sentiment = None
+        if pos_count > neg_count:
+            current_sentiment = "positive"
+        elif neg_count > pos_count:
+            current_sentiment = "negative"
+        elif pos_count > 0 or neg_count > 0:
+            current_sentiment = "mixed"
+        else:
+            current_sentiment = "neutral"
+            
+        # Record sentiment shifts
+        if prev_sentiment and prev_sentiment != current_sentiment:
+            structure_info["sentiment_shifts"].append((prev_sentiment, current_sentiment, i))
+            
+        prev_sentiment = current_sentiment
+    
+    return structure_info
+
+def extract_context_patterns(text):
+    """Extract advanced contextual patterns from text"""
+    patterns = []
+    
+    # Get sentence chunks for analysis
+    sentences = extract_sentence_chunks(text)
+    
+    # 1. Look for "not only X but also Y" pattern
+    not_only_pattern = re.search(r'not only (.*?) but also (.*?)(\.|\!|\?|$)', text, re.IGNORECASE)
+    if not_only_pattern:
+        patterns.append("not_only_but_also")
+    
+    # 2. Look for "despite X, Y" pattern (concession)
+    if re.search(r'despite (.*?), (.*?)(\.|\!|\?|$)', text, re.IGNORECASE):
+        patterns.append("concession_despite")
+    
+    # 3. Check for "used to X but now Y" (temporal contrast)
+    if re.search(r'used to (.*?) but now (.*?)(\.|\!|\?|$)', text, re.IGNORECASE):
+        patterns.append("temporal_contrast")
+    
+    # 4. Check for "on one hand X, on the other hand Y" (balanced contrast)
+    if re.search(r'on (?:the )?one hand (.*?), on the other hand (.*?)(\.|\!|\?|$)', text, re.IGNORECASE):
+        patterns.append("balanced_contrast")
+    
+    # 5. Look for sentences with mixed emotions
+    for sentence in sentences:
+        words = sentence.lower().split()
+        pos_words = [w for w in words if w in KNOWN_POSITIVE_WORDS]
+        neg_words = [w for w in words if w in KNOWN_NEGATIVE_WORDS]
+        
+        if pos_words and neg_words:
+            patterns.append("mixed_emotions_in_sentence")
+            break
+    
+    # 6. Check for conditional sentiment ("if X then Y")
+    if re.search(r'if (.*?) then (.*?)(\.|\!|\?|$)', text, re.IGNORECASE):
+        patterns.append("conditional_statement")
+    
+    # 7. Check for "feeling X about Y" pattern
+    feel_pattern = re.search(r'feel(?:ing)? (.*?) about (.*?)(\.|\!|\?|$)', text, re.IGNORECASE)
+    if feel_pattern:
+        feel_word = feel_pattern.group(1).lower().split()[0]
+        if feel_word in KNOWN_POSITIVE_WORDS:
+            patterns.append("explicit_positive_feeling")
+        elif feel_word in KNOWN_NEGATIVE_WORDS:
+            patterns.append("explicit_negative_feeling")
+    
+    return patterns
+
 def preprocess_text(text):
-    """Process text into a set of features with enhanced emotion handling and context awareness"""
+    """Process text into a set of features with context-aware analysis"""
     # Convert to lowercase and remove non-alphanumeric characters except specific punctuation
-    text = re.sub(r'[^\w\s.,!?]', '', text.lower())
+    text = text.lower()
+    processed_text = re.sub(r'[^\w\s.,!?]', '', text)
     
-    # Replace punctuation with spaces to ensure proper tokenization
-    text = re.sub(r'[.,!?]', ' ', text)
+    # Extract overall text structure before tokenization
+    structure_info = analyze_text_structure(text)
+    context_patterns = extract_context_patterns(text)
     
-    words = text.split()
+    # Extract sentence-level contexts
+    sentences = extract_sentence_chunks(processed_text)
+    
+    # Replace punctuation with spaces for word tokenization
+    processed_text = re.sub(r'[.,!?]', ' ', processed_text)
+    words = processed_text.split()
+    
     features = set()
+    
+    # Add structural features
+    if structure_info["sentence_count"] > 1:
+        features.add("multi_sentence")
+    if structure_info["contains_contrast"]:
+        features.add("structural_contrast")
+    if structure_info["contains_question"]:
+        features.add("contains_question")
+    if structure_info["contains_exclamation"]:
+        features.add("contains_exclamation")
+    
+    # Add detected context patterns
+    for pattern in context_patterns:
+        features.add(f"pattern_{pattern}")
+    
+    # Track sentiment shifts in longer texts
+    for shift in structure_info["sentiment_shifts"]:
+        features.add(f"shift_{shift[0]}_to_{shift[1]}")
+    
+    # Process words with context awareness
     negated = False
-    
-    # Track emotional transitions
-    has_transition = False
-    transition_position = -1
-    
-    # Find transition markers (like "but", "however", "today")
-    for i, word in enumerate(words):
-        if word in TEMPORAL_TRANSITION_WORDS:
-            has_transition = True
-            transition_position = i
-            features.add(f"transition_{word}")
-    
-    # Track emotions before and after transition
-    emotion_before_transition = None
-    emotion_after_transition = None
+    intensified = False
     
     for i, word in enumerate(words):
         # Handle negation words
         if word in NEGATION_WORDS:
             negated = not negated
-            features.add(f"negation_present")  # Add feature indicating negation exists
+            features.add("negation_present")
             continue
             
-        # Skip regular stopwords
-        if word in STOPWORDS and word not in INTENSIFIERS and word not in IMPORTANT_NEGATIVE_WORDS and word not in IMPORTANT_POSITIVE_WORDS:
+        # Handle intensifiers
+        if word in INTENSIFIERS:
+            intensified = True
+            features.add("intensifier_present")
+            continue
+        
+        # Skip stopwords unless they're important for context
+        if word in STOPWORDS and word not in CONTEXT_TRANSITIONS:
             continue
 
-        # Add the word with negation prefix if needed
-        feature = f"not_{word}" if negated else word
-        features.add(feature)
+        # Add the word with appropriate context modifiers
+        if negated and intensified:
+            features.add(f"not_intensified_{word}")
+        elif negated:
+            features.add(f"not_{word}")
+        elif intensified:
+            features.add(f"intensified_{word}")
+        else:
+            features.add(word)
         
-        # Track emotion words relative to transitions
-        if has_transition:
-            if word in IMPORTANT_NEGATIVE_WORDS:
-                if i < transition_position:
-                    emotion_before_transition = "negative"
-                    features.add("negative_before_transition")
-                else:
-                    emotion_after_transition = "negative"
-                    features.add("negative_after_transition")
-            
-            if word in IMPORTANT_POSITIVE_WORDS:
-                if i < transition_position:
-                    emotion_before_transition = "positive"
-                    features.add("positive_before_transition")
-                else:
-                    emotion_after_transition = "positive"
-                    features.add("positive_after_transition")
+        # Reset intensifier flag after using it
+        intensified = False
         
-        # Add special bigrams and trigrams to capture context
+        # Extract contextual bigrams
         if i < len(words) - 1:
             next_word = words[i + 1]
-            
-            # Create bigrams for emotional and intensifier words
-            if (word in INTENSIFIERS or 
-                word in IMPORTANT_NEGATIVE_WORDS or 
-                word in IMPORTANT_POSITIVE_WORDS or
-                next_word in IMPORTANT_NEGATIVE_WORDS or
-                next_word in IMPORTANT_POSITIVE_WORDS):
-                bigram = f"{word}_{next_word}"
-                features.add(bigram)
-                
-                # Add stronger weight to emotion-related bigrams
-                if word in INTENSIFIERS and (next_word in IMPORTANT_NEGATIVE_WORDS or next_word in IMPORTANT_POSITIVE_WORDS):
-                    features.add(f"intensified_{bigram}")
-            
-            # Create contextual trigrams if possible
-            if i < len(words) - 2:
-                next_next_word = words[i + 2]
-                if ((word in IMPORTANT_NEGATIVE_WORDS or word in IMPORTANT_POSITIVE_WORDS) or
-                    (next_word in IMPORTANT_NEGATIVE_WORDS or next_word in IMPORTANT_POSITIVE_WORDS) or
-                    (next_next_word in IMPORTANT_NEGATIVE_WORDS or next_next_word in IMPORTANT_POSITIVE_WORDS)):
-                    features.add(f"{word}_{next_word}_{next_next_word}")
+            if next_word not in STOPWORDS or next_word in CONTEXT_TRANSITIONS:
+                features.add(f"{word}_{next_word}")
     
-    # Add transition pattern if emotions changed (positive->negative or negative->positive)
-    if emotion_before_transition and emotion_after_transition and emotion_before_transition != emotion_after_transition:
-        features.add(f"emotion_shift_{emotion_before_transition}_to_{emotion_after_transition}")
+    # Add sentence-level features for mixed sentiment analysis
+    for i, sentence in enumerate(sentences):
+        # Simple per-sentence sentiment analysis
+        sent_words = set(sentence.lower().split())
+        pos_words = sent_words.intersection(KNOWN_POSITIVE_WORDS)
+        neg_words = sent_words.intersection(KNOWN_NEGATIVE_WORDS)
         
-        # Emphasize the most recent emotion as likely more important
-        features.add(f"recent_emotion_{emotion_after_transition}")
+        # If mixed emotions in same sentence, add as feature
+        if pos_words and neg_words:
+            features.add(f"mixed_emotions_sentence_{i}")
+            
+            # Track which appears first in the sentence
+            sent_word_list = sentence.lower().split()
+            first_pos_idx = min([sent_word_list.index(w) for w in pos_words]) if pos_words else float('inf')
+            first_neg_idx = min([sent_word_list.index(w) for w in neg_words]) if neg_words else float('inf')
+            
+            if first_pos_idx < first_neg_idx:
+                features.add("positive_before_negative")
+            else:
+                features.add("negative_before_positive")
     
-    # Add recency bias - last emotional word gets extra emphasis
-    last_emotion_word = None
-    for word in reversed(words):
-        if word in IMPORTANT_NEGATIVE_WORDS:
-            last_emotion_word = f"last_emotion_negative_{word}"
-            break
-        elif word in IMPORTANT_POSITIVE_WORDS:
-            last_emotion_word = f"last_emotion_positive_{word}"
-            break
+    # Add overall sentiment distribution features
+    last_sentence_words = sentences[-1].lower().split() if sentences else []
+    pos_in_last = any(word in KNOWN_POSITIVE_WORDS for word in last_sentence_words)
+    neg_in_last = any(word in KNOWN_NEGATIVE_WORDS for word in last_sentence_words)
     
-    if last_emotion_word:
-        features.add(last_emotion_word)
+    if pos_in_last and not neg_in_last:
+        features.add("ends_positive")
+    elif neg_in_last and not pos_in_last:
+        features.add("ends_negative")
+    elif pos_in_last and neg_in_last:
+        features.add("ends_mixed")
+    else:
+        features.add("ends_neutral")
     
     return features
 
@@ -328,43 +442,21 @@ def train_model(data):
     }
 
 def predict(text):
-    """Predict sentiment of given text using the trained model with enhanced context handling"""
+    """Predict sentiment of given text using context-aware approach"""
     if not model.is_trained:
         return {"error": "Model not trained yet"}
     
-    # Extract features from input text
+    # Extract features with context awareness
     features = preprocess_text(text)
     
-    # Calculate vocabulary size once
+    # Vocabulary size for smoothing
     vocab_size = len(model.vocabulary)
+    
+    # Calculate log probabilities for each sentiment class
     log_probs = {}
+    feature_contributions = {sentiment: {} for sentiment in VALID_SENTIMENTS}
     
-    # Track feature importance for explanation
-    feature_importance = {sentiment: {} for sentiment in VALID_SENTIMENTS}
-    
-    # Special case handling for emotion transitions
-    has_emotion_shift = any(f.startswith("emotion_shift_") for f in features)
-    has_recent_emotion = any(f.startswith("recent_emotion_") for f in features)
-    recent_emotion = None
-    
-    # Get the recent emotion if present
-    if has_recent_emotion:
-        for f in features:
-            if f.startswith("recent_emotion_"):
-                recent_emotion = f.split("_")[-1]
-                break
-            
-    # Get the last emotion word
-    last_emotion = None
-    emotion_type = None
-    for f in features:
-        if f.startswith("last_emotion_"):
-            parts = f.split("_")
-            emotion_type = parts[1]  # last_emotion_negative_sad -> negative
-            last_emotion = parts[2] if len(parts) > 2 else None  # last_emotion_negative_sad -> sad
-            break
-    
-    # Initial calculation of log probabilities for each sentiment class
+    # Initial calculation of class probabilities
     for sentiment in VALID_SENTIMENTS:
         # Calculate prior probability
         class_prob = model.class_counts[sentiment] / model.total_documents
@@ -379,153 +471,110 @@ def predict(text):
         # Calculate feature contributions
         for word in features:
             count = model.word_counts[sentiment].get(word, 0) + LAPLACE_SMOOTHING_ALPHA
+            prob = count / denominator
             
-            # Apply boosting for emotional words based on sentiment
-            if sentiment == 'negative' and word in NEGATIVE_BOOST_WORDS:
-                boost_factor = NEGATIVE_BOOST_WORDS[word]
-                count *= boost_factor
-                feature_importance[sentiment][word] = boost_factor
-            
-            elif sentiment == 'positive' and word in POSITIVE_BOOST_WORDS:
-                boost_factor = POSITIVE_BOOST_WORDS[word]
-                count *= boost_factor
-                feature_importance[sentiment][word] = boost_factor
-                
-            # Apply special weighting for context patterns
-            
-            # Bigram and trigram boosting
-            if '_' in word and not word.startswith('not_'):
-                # Boost emotional bigrams more than regular words
-                if any(ew in word for ew in IMPORTANT_NEGATIVE_WORDS) or any(ew in word for ew in IMPORTANT_POSITIVE_WORDS):
-                    count *= 1.5
-                    feature_importance[sentiment][word] = 1.5
-            
-            # Boosting for emotional transitions
-            if word.startswith("emotion_shift_"):
-                shift_type = word.split("_")[-3:]  # ["positive", "to", "negative"]
-                if shift_type[0] != shift_type[2]:  # if emotions are different
-                    # Emphasize final emotion more by boosting that sentiment
-                    if sentiment == shift_type[2]:  # if the sentiment matches the final emotion
-                        count *= 3.0  # Increased from 2.0 to 3.0
-                        feature_importance[sentiment][word] = 3.0
-            
-            # Boosting for recent emotion
-            if word.startswith("recent_emotion_"):
-                emotion = word.split("_")[-1]
-                if sentiment == emotion:
-                    count *= 3.5  # Increased from 2.5 to 3.5
-                    feature_importance[sentiment][word] = 3.5
-            
-            # Boosting for last emotional word
-            if word.startswith("last_emotion_"):
-                found_emotion_type = word.split("_")[1]  # negative or positive
-                if sentiment == found_emotion_type:
-                    count *= 3.0  # Increased from 2.0 to 3.0
-                    feature_importance[sentiment][word] = 3.0
+            # Store contribution for explanation
+            feature_contributions[sentiment][word] = math.log(prob)
             
             # Add log probability for this feature
-            log_prob += math.log(count / denominator)
+            log_prob += math.log(prob)
 
         log_probs[sentiment] = log_prob
 
-    # Convert log probabilities to normalized confidence scores
+    # Apply context-based corrections
+    context_adjustments = {}
+    
+    # Get base probabilities before context adjustments
     max_log = max(log_probs.values())
     exp_scores = {sentiment: math.exp(score - max_log) for sentiment, score in log_probs.items()}
     total = sum(exp_scores.values())
-    confidence_scores = {sentiment: round(score / total, 4) for sentiment, score in exp_scores.items()}
+    base_scores = {sentiment: score / total for sentiment, score in exp_scores.items()}
     
-    # Check for explicit mixed emotion cases with decisive handling
-    explicit_mixed_emotions = False
+    # 1. Check for strong mixed signals
+    has_mixed_emotions = any("mixed_emotions_sentence" in f for f in features)
+    has_sentiment_shift = any(f.startswith("shift_") for f in features)
     
-    # CRITICAL IMPROVEMENT: Apply strong rule-based corrections for mixed emotions with transitions
-    if has_emotion_shift:
-        explicit_mixed_emotions = True
+    if has_mixed_emotions or has_sentiment_shift:
+        # Adjust toward more neutral classification for mixed emotions
+        mid_point = sum(base_scores.values()) / len(base_scores)
         
-        # Find the final emotion in the shift
-        final_emotion = None
-        for f in features:
-            if f.startswith("emotion_shift_"):
-                parts = f.split("_")
-                if len(parts) >= 5 and parts[-2] == "to":
-                    final_emotion = parts[-1]  # Get the target emotion after "to"
-                    break
-        
-        # Apply very strong weighting to the final emotion in a shift
-        if final_emotion:
-            # Dramatically increase the weight of the final emotion (3x)
-            for sentiment in VALID_SENTIMENTS:
-                if sentiment == final_emotion:
-                    confidence_scores[sentiment] *= 3.0
-                else:
-                    # Reduce other sentiments
-                    confidence_scores[sentiment] *= 0.5
-                    
-            # Renormalize
-            total = sum(confidence_scores.values())
-            confidence_scores = {sentiment: round(score / total, 4) for sentiment, score in confidence_scores.items()}
+        for sentiment in VALID_SENTIMENTS:
+            # Move scores 30% closer to the average
+            context_adjustments[sentiment] = 0.3 * (mid_point - base_scores[sentiment])
     
-    # Apply very strong last-emotion rule - the final emotional state is critical
-    if last_emotion and emotion_type and not explicit_mixed_emotions:
-        # If last emotion is negative, boost negative sentiment
-        if emotion_type == "negative":
-            confidence_scores["negative"] = max(confidence_scores["negative"], 
-                                              confidence_scores["negative"] * 2.0)
-            confidence_scores["positive"] *= 0.5  # Reduce positive sentiment
-        
-        # If last emotion is positive, boost positive sentiment
-        elif emotion_type == "positive":
-            confidence_scores["positive"] = max(confidence_scores["positive"],
-                                             confidence_scores["positive"] * 2.0)
-            confidence_scores["negative"] *= 0.5  # Reduce negative sentiment
-        
-        # Renormalize
-        total = sum(confidence_scores.values())
-        confidence_scores = {sentiment: round(score / total, 4) for sentiment, score in confidence_scores.items()}
+    # 2. Check for ending sentiment dominance
+    if "ends_positive" in features:
+        context_adjustments["positive"] = context_adjustments.get("positive", 0) + 0.1
+    elif "ends_negative" in features:
+        context_adjustments["negative"] = context_adjustments.get("negative", 0) + 0.1
+    elif "ends_mixed" in features:
+        # For mixed endings, boost neutral slightly
+        context_adjustments["neutral"] = context_adjustments.get("neutral", 0) + 0.1
     
-    # DECISIVE RULE: If text ends with clear negative emotion after transition, make it negative
-    if "negative_after_transition" in features and "transition_but" in features:
-        has_final_negative = False
-        for f in features:
-            if f == "last_emotion_negative_sad" or f == "recent_emotion_negative":
-                has_final_negative = True
-                break
-                
-        if has_final_negative:
-            # Force negative to be the highest by a clear margin
-            confidence_scores = {
-                "negative": 0.80,
-                "neutral": 0.05,
-                "positive": 0.15
-            }
+    # 3. Handle structural patterns that indicate balance
+    if "pattern_balanced_contrast" in features:
+        # Move all scores 40% closer to equal distribution
+        equal_dist = 1.0 / len(VALID_SENTIMENTS)
+        for sentiment in VALID_SENTIMENTS:
+            context_adjustments[sentiment] = context_adjustments.get(sentiment, 0) + 0.4 * (equal_dist - base_scores[sentiment])
+    
+    # 4. Handle explicit sentiment statements
+    if "pattern_explicit_positive_feeling" in features:
+        context_adjustments["positive"] = context_adjustments.get("positive", 0) + 0.15
+    elif "pattern_explicit_negative_feeling" in features:
+        context_adjustments["negative"] = context_adjustments.get("negative", 0) + 0.15
+    
+    # 5. Apply temporal contrast pattern (usually the later sentiment wins)
+    if "pattern_temporal_contrast" in features:
+        # If we have a shift ending in positive or negative
+        if "shift_neutral_to_positive" in features or "shift_negative_to_positive" in features:
+            context_adjustments["positive"] = context_adjustments.get("positive", 0) + 0.15
+        elif "shift_neutral_to_negative" in features or "shift_positive_to_negative" in features:
+            context_adjustments["negative"] = context_adjustments.get("negative", 0) + 0.15
+    
+    # Apply context adjustments
+    adjusted_scores = {
+        sentiment: base_scores[sentiment] + context_adjustments.get(sentiment, 0)
+        for sentiment in VALID_SENTIMENTS
+    }
+    
+    # Ensure scores are non-negative
+    min_score = min(adjusted_scores.values())
+    if min_score < 0:
+        for sentiment in adjusted_scores:
+            adjusted_scores[sentiment] -= min_score
+    
+    # Normalize to get final confidence scores
+    total = sum(adjusted_scores.values())
+    confidence_scores = {sentiment: round(score / total, 4) for sentiment, score in adjusted_scores.items()}
     
     # Get predicted sentiment (highest confidence)
     predicted = max(confidence_scores, key=confidence_scores.get)
 
-    # Identify key features that contributed to the prediction
-    key_features = []
-    for word in sorted(features):
-        if word in NEGATIVE_BOOST_WORDS or word in POSITIVE_BOOST_WORDS:
-            key_features.append(word)
-        elif word.startswith("emotion_shift_") or word.startswith("recent_emotion_") or word.startswith("last_emotion_"):
-            key_features.append(word)
+    # Collect significant contextual features for explanation
+    significant_features = []
     
-    # Add debugging information about rule application
-    applied_rules = []
-    if has_emotion_shift:
-        applied_rules.append("emotion_shift_rule")
-    if last_emotion and emotion_type:
-        applied_rules.append("last_emotion_rule")
-    if "negative_after_transition" in features and "transition_but" in features:
-        applied_rules.append("negative_after_but_rule")
+    # Context patterns
+    context_features = [f for f in features if f.startswith("pattern_") or 
+                                               f.startswith("shift_") or 
+                                               f in ["ends_positive", "ends_negative", "ends_mixed", "ends_neutral"]]
+    significant_features.extend(context_features[:3])  # Top 3 context features
+    
+    # Most impactful regular features for the predicted class
+    sorted_features = sorted(feature_contributions[predicted].items(), 
+                           key=lambda x: x[1], reverse=True)
+    top_regular_features = [f for f, _ in sorted_features[:5] if not f.startswith("pattern_") and 
+                                                                 not f.startswith("shift_")]
+    significant_features.extend(top_regular_features)
     
     # Return prediction with additional info
     return {
         "sentiment": predicted,
         "confidence_scores": confidence_scores,
         "recommendations": BLOG_RECOMMENDATIONS.get(predicted, []),
-        "processed_features": sorted(list(features)),
-        "key_emotional_features": key_features[:5] if key_features else [],
-        "applied_rules": applied_rules
+        "processed_features_count": len(features),
+        "significant_contextual_features": significant_features[:5],  # Top 5 most significant
+        "context_adjustments_applied": {k: round(v, 4) for k, v in context_adjustments.items() if abs(v) > 0.01}
     }
 
 # API Endpoints
@@ -533,9 +582,9 @@ def predict(text):
 def welcome():
     """Welcome endpoint with basic API information"""
     return jsonify({
-        "name": "Sentiment Analysis API",
+        "name": "Context-Aware Sentiment Analysis API",
         "status": "active",
-        "version": "1.2.0",  # Updated version
+        "version": "2.0.0",
         "endpoints": {
             "/train": "POST - Train the sentiment model",
             "/predict": "POST - Predict sentiment of text",
@@ -615,6 +664,8 @@ def predict_endpoint():
             "status": "error",
             "message": f"Prediction failed: {str(e)}"
         }), 500
+
+
 
 @app.route('/health', methods=['GET'])
 def health_check():
